@@ -13,7 +13,7 @@ from src.quantization import quantize_model
 fixes.apply_fixes()  # fix for fp6
 dtype = torch.bfloat16
 transformer_qdtype = quantization.qfloatx(2, 2)
-text_encoder_qdtype = quantization.qfloat8
+text_encoder_qdtype = quantization.qintx(4)
 
 can_offload = True
 bfl_repo = "black-forest-labs/FLUX.1-dev"
