@@ -3,97 +3,20 @@ import os
 import gc
 
 import torch
-from diffusers import FlowMatchEulerDiscreteScheduler, AutoencoderKL
-from diffusers.models.transformers.transformer_flux import FluxTransformer2DModel
-from transformers import CLIPTextModel, CLIPTokenizer, T5EncoderModel, T5TokenizerFast
 
-from src import quantization, pipeline, fixes
-from src.quantization import quantize_model
+from src import fixes, models, config
 
-fixes.apply_fixes()  # fix for fp6
-dtype = torch.bfloat16
-transformer_qdtype = quantization.qfloatx(2, 2)
-text_encoder_qdtype = quantization.qintx(4)
+prompt = "An anime drawing of a cute shiba inu"
 
-can_offload = True
-bfl_repo = "black-forest-labs/FLUX.1-dev"
-revision = "refs/pr/3"
+fixes.apply_fixes()  # fix for qdtypes
+config = config.get_config()
 
-prompt = "An anime drawing of a tall woman with long white and green hair standing on a mountain ledge looking at a pine forest whilst it is snowing"
+model = models.load_models()  # load models
+model["vae"].enable_tiling()  # enable tiling
 
-scheduler = FlowMatchEulerDiscreteScheduler.from_pretrained(
-    bfl_repo, subfolder="scheduler", revision=revision, torch_dtype=dtype
-)
-text_encoder = CLIPTextModel.from_pretrained(
-    "openai/clip-vit-large-patch14", torch_dtype=dtype
-)
-tokenizer = CLIPTokenizer.from_pretrained(
-    "openai/clip-vit-large-patch14", torch_dtype=dtype
-)
+pipe = models.create_pipeline(model)  # create pipeline
 
-
-def init_transformer() -> FluxTransformer2DModel:
-    return FluxTransformer2DModel.from_pretrained(
-        bfl_repo, revision=revision, subfolder="transformer", torch_dtype=dtype
-    )
-
-
-transformer = quantize_model(
-    init_transformer,
-    transformer_qdtype,
-    skip=["proj_out", "x_embedder", "norm_out", "context_embedder"],
-)
-if can_offload:
-    try:
-        transformer.to("cpu")
-    except:  # noqa
-        can_offload = False
-else:
-    transformer.to("cuda")
-
-
-def init_text_encoder():
-    return T5EncoderModel.from_pretrained(
-        bfl_repo,
-        subfolder="text_encoder_2",
-        revision=revision,
-        torch_dtype=dtype,
-    )
-
-
-text_encoder_2 = quantize_model(init_text_encoder, text_encoder_qdtype)
-if can_offload:
-    try:
-        text_encoder_2.to("cpu")
-    except:  # noqa
-        can_offload = False
-else:
-    text_encoder_2.to("cuda")
-torch.cuda.empty_cache()
-
-tokenizer_2 = T5TokenizerFast.from_pretrained(
-    bfl_repo, subfolder="tokenizer_2", revision=revision, torch_dtype=dtype
-)
-
-vae: AutoencoderKL = AutoencoderKL.from_pretrained(
-    bfl_repo, subfolder="vae", revision=revision, torch_dtype=dtype
-)
-vae.enable_tiling()
-pipe: pipeline.FluxPipeline = pipeline.FluxPipeline(
-    scheduler=scheduler,
-    text_encoder=text_encoder,
-    tokenizer=tokenizer,
-    text_encoder_2=text_encoder_2,
-    tokenizer_2=tokenizer_2,
-    vae=vae,
-    transformer=transformer,
-)
-if can_offload:
-    pipe.enable_model_cpu_offload()
-else:
-    pipe.to("cuda")
-
-generator = torch.Generator().manual_seed(12345)
+generator = torch.Generator().manual_seed(123456)
 with torch.inference_mode():
     image = pipe(
         prompt=prompt,

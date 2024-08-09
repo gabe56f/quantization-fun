@@ -1,10 +1,10 @@
 from typing import TYPE_CHECKING
 import torch
-from torchao.dtypes import AffineQuantizedTensor
 
 from .utils import is_available
 
 if TYPE_CHECKING:
+    from torchao.dtypes import AffineQuantizedTensor
     from torchao.prototype.uintx import UintxTensor
     from torchao.prototype.quant_llm import QuantLlmLinearWeight
 
@@ -48,9 +48,35 @@ def apply_fixes():
         def _(f, types, *args, **kwargs):
             return False
 
-    @AffineQuantizedTensor.implements(aten._has_compatible_shallow_copy_type.default)
-    def _(f, types, *args, **kwargs):
-        return False
+    if is_available("torchao.dtypes.affine_quantized_tensor"):
+        from torchao.dtypes.affine_quantized_tensor import (
+            AffineQuantizedTensor,
+            TensorCoreTiledAQTLayout,
+        )
+
+        TensorCoreTiledAQTLayout.to = move_aqt
+
+        @AffineQuantizedTensor.implements(
+            aten._has_compatible_shallow_copy_type.default
+        )
+        def _(f, types, *args, **kwargs):
+            return False
+
+
+def move_aqt(self: "AffineQuantizedTensor", *args, **kwargs):
+    kwargs = self._get_to_kwargs(*args, **kwargs)  # use builtin
+    device = kwargs["device"]
+
+    # couldn't care less, won't be executing on anything besdies "cuda"
+    # if not is_device("cuda", device):
+    #     raise ValueError(f"TensorCoreTiledAQTLayout is only available for cuda device, can't convert to {device}")
+
+    return self.__class__(
+        self.packed_weight.to(device),
+        self.scale_and_zero.to(device),
+        self.transposed,
+        self.layout_type,
+    )
 
 
 def move_fpx(self: "QuantLlmLinearWeight", *args, **kwargs):
