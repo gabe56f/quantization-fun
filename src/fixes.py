@@ -29,7 +29,11 @@ def _get_to_kwargs(self: torch.nn.Module, *args, **kwargs):
 
 def apply_fixes():
     if is_available("torchao.prototype.quant_llm"):
-        from torchao.prototype.quant_llm import QuantLlmLinearWeight
+        from torchao.prototype.quant_llm.quant_llm import (
+            QuantLlmLinearWeight,
+            _SPLIT_K_MAP,
+            quant_llm_linear,
+        )
 
         # Stinky fix for aten::to::dtype_layout on QuantLlmLinearWeight
         QuantLlmLinearWeight.to = move_fpx
@@ -38,6 +42,38 @@ def apply_fixes():
         @QuantLlmLinearWeight.implements(aten._has_compatible_shallow_copy_type.default)
         def _(f, types, *args, **kwargs):
             return False
+
+        # With large enough tensors, this can become an issue, so let's fix it
+        # May make certain things slower.
+        @QuantLlmLinearWeight.implements(torch.nn.functional.linear)
+        def _(func, types, args, kwargs):
+            act: torch.Tensor = args[0]
+            weight = args[1]
+            bias = args[2] if len(args) >= 3 else None
+            assert isinstance(weight, QuantLlmLinearWeight)
+
+            out_dim, in_dim = weight.shape
+            act_reshaped = act.contiguous().view(-1, in_dim).half()
+
+            # https://github.com/microsoft/DeepSpeed/blob/3a3a6db3332e339cc9fd94efd4982f6d60635a3d/deepspeed/inference/v2/kernels/core_ops/cuda_linear/cuda_linear.py
+            bsize = act_reshaped.shape[0]
+            splitK = (
+                _SPLIT_K_MAP[(bsize - 1) // 64].get(out_dim, 1) if bsize <= 768 else 1
+            )
+
+            out = quant_llm_linear(
+                weight.ebits,
+                weight.mbits,
+                act_reshaped,
+                weight.fpx_data,
+                weight.scale,
+                splitK=splitK,
+            )
+
+            if bias is not None:
+                out += bias
+
+            return out.view(*act.shape[:-1], out_dim).to(act.dtype)
 
     if is_available("torchao.prototype.uintx"):
         from torchao.prototype.uintx import UintxTensor
@@ -67,7 +103,7 @@ def move_aqt(self: "AffineQuantizedTensor", *args, **kwargs):
     kwargs = self._get_to_kwargs(*args, **kwargs)  # use builtin
     device = kwargs["device"]
 
-    # couldn't care less, won't be executing on anything besdies "cuda"
+    # couldn't care less, won't be executing on anything besides "cuda"
     # if not is_device("cuda", device):
     #     raise ValueError(f"TensorCoreTiledAQTLayout is only available for cuda device, can't convert to {device}")
 

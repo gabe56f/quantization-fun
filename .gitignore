@@ -2,3 +2,4 @@
 *.png
 
 config.json
+models.pt
