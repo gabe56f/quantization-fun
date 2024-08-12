@@ -720,6 +720,8 @@ class FluxPipeline(DiffusionPipeline, FluxLoraLoaderMixin):
                 latents / self.vae.config.scaling_factor
             ) + self.vae.config.shift_factor
             torch.nan_to_num_(latents, nan=0.0, posinf=0.0, neginf=0.0)
+            self.vae.enable_tiling()
+            self.vae.enable_slicing()
             image = self.vae.decode(latents, return_dict=False)[0]
             image = self.image_processor.postprocess(image, output_type=output_type)
 
