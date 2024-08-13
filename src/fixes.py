@@ -1,7 +1,11 @@
 from typing import TYPE_CHECKING
+
+from diffusers import AutoencoderKL
 import torch
 
+from .config import Config
 from .utils import is_available, uintx_version
+from .vae import VAEHook
 
 if TYPE_CHECKING:
     from torchao.dtypes import AffineQuantizedTensor
@@ -111,6 +115,20 @@ def apply_fixes():
         )
         def _(f, types, *args, **kwargs):
             return False
+
+
+def patch_vae(vae: AutoencoderKL, config: Config) -> AutoencoderKL:
+    if not config.vae.use_tiling:
+        return vae
+
+    if not hasattr(vae.decoder, "original_forward"):
+        vae.decoder.original_forward = vae.decoder.forward
+    if not hasattr(vae.encoder, "original_forward"):
+        vae.encoder.original_forward = vae.encoder.forward
+    vae.encoder.forward = VAEHook(vae.encoder)
+    vae.decoder.forward = VAEHook(vae.decoder)
+
+    return vae
 
 
 def move_aqt(self: "AffineQuantizedTensor", *args, **kwargs):

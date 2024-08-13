@@ -15,7 +15,7 @@ from transformers import (
     T5TokenizerFast,
 )
 
-from src import quantization
+from src import quantization, fixes
 from src.config import decode_qdt, encode_qdt, get_config
 from src.pipeline import FluxPipeline
 
@@ -118,8 +118,9 @@ def load_models(file: Path = None) -> dict:
 
 
 def _apply_transformations(models: dict) -> dict:
-    # config = get_config()
-    models["vae"].enable_tiling()
+    config = get_config()
+    # models["vae"].enable_tiling()
+    fixes.patch_vae(models["vae"], config)
     return models
 
 

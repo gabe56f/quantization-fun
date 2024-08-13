@@ -723,8 +723,8 @@ class FluxPipeline(DiffusionPipeline, FluxLoraLoaderMixin):
             torch.nan_to_num_(latents, nan=0.0, posinf=0.0, neginf=0.0)
 
             config = get_config()
-            with torch.autocast(device.type, dtype=config.compute.dtype):
-                image = self.vae.decode(latents, return_dict=False)[0]
+            # with torch.autocast(device.type, dtype=config.compute.dtype):
+            image = self.vae.decode(latents, return_dict=False)[0]
             image = self.image_processor.postprocess(image, output_type=output_type)
 
         # Offload all models

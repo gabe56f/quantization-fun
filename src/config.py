@@ -41,6 +41,26 @@ def decode_device(device: str) -> torch.device:
     return torch.device(device)
 
 
+def encode_tile(tile: int) -> str:
+    return str(tile * 8)
+
+
+def decode_tile(tile: str) -> int:
+    return int(tile) // 8
+
+
+@dataclass_json
+@dataclass
+class VAEConfig:
+    use_tiling: bool = True
+    tile_size: int = field(
+        default=64, metadata=config(encoder=encode_tile, decoder=decode_tile)
+    )
+    use_tiling_fastpath: bool = True
+    tiling_encoder_color_fix: bool = True
+    upcast: bool = False
+
+
 @dataclass_json
 @dataclass
 class ComputeConfig:
@@ -93,6 +113,7 @@ class Config:
     text_encoder: ModelConfig = field(
         default_factory=lambda: ModelConfig(skip=[], qdtype=quantization.qint4)
     )
+    vae: VAEConfig = field(default_factory=VAEConfig)
 
 
 def get_config() -> Config:
