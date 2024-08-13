@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING
 import torch
 
-from .utils import is_available
+from .utils import is_available, uintx_version
 
 if TYPE_CHECKING:
     from torchao.dtypes import AffineQuantizedTensor
@@ -10,6 +10,7 @@ if TYPE_CHECKING:
 
 
 aten = torch.ops.aten
+UINTX_VERSION = uintx_version()
 
 
 def _get_to_kwargs(self: torch.nn.Module, *args, **kwargs):
@@ -28,6 +29,14 @@ def _get_to_kwargs(self: torch.nn.Module, *args, **kwargs):
 
 
 def apply_fixes():
+    if not is_available("torchao"):
+        import sys
+
+        print(
+            "torchao not available, can't apply fixes. Please install torchao with `pip install torchao`."
+        )
+        sys.exit(0)
+
     if is_available("torchao.prototype.quant_llm"):
         from torchao.prototype.quant_llm.quant_llm import (
             QuantLlmLinearWeight,
@@ -75,8 +84,13 @@ def apply_fixes():
 
             return out.view(*act.shape[:-1], out_dim).to(act.dtype)
 
-    if is_available("torchao.prototype.uintx"):
-        from torchao.prototype.uintx import UintxTensor
+    if UINTX_VERSION != 1:
+        if UINTX_VERSION == 2:
+            from torchao.prototype.uintx import UintxTensor
+        else:
+            from torchao.dtypes.uintx import (  # pyright: ignore[reportMissingImports]
+                UintxTensor,
+            )
 
         UintxTensor.to = move_intx
 
@@ -135,9 +149,11 @@ def move_intx(self: "UintxTensor", *args, **kwargs):
     device = kwargs.pop("device")
     kwargs.pop("memory_format")  # unsupported
 
+    bit_size = getattr(self, "bit_size" if UINTX_VERSION == 2 else "bit_width")
+
     return self.__class__(
         [x.to(device) for x in self.get_shards()],
         self.packed_shape,
-        self.bit_size,
+        bit_size,
         self.pack_dim,
     )

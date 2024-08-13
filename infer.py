@@ -7,7 +7,7 @@ import torch
 from src import fixes, models, config
 
 prompt = "A town full of people dressed in Victorian era clothing."
-neg_prompt = "Houses"
+neg_prompt = ""
 
 fixes.apply_fixes()  # fix for qdtypes
 config = config.get_config()
@@ -24,7 +24,7 @@ pipe = models.create_pipeline(model)  # create pipeline
 
 
 def disable_cfg(step: int, max_steps: int, timestep: torch.Tensor) -> bool:
-    return step > max_steps // 4 or timestep.item() < 0.1
+    return step > max_steps // 4 or timestep.item() < 0.25
 
 
 generator = torch.Generator().manual_seed(123456)
@@ -35,7 +35,7 @@ with torch.inference_mode():
         width=1024,
         height=1024,
         num_inference_steps=28,
-        cfg=8,
+        cfg=1,
         cfg_disable=disable_cfg,
         generator=generator,
         guidance_scale=3.5,

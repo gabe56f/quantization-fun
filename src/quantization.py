@@ -15,6 +15,12 @@ from torchao.quantization import (
 from torchao.quantization.utils import _get_per_token_block_size
 from torchao.quantization.quant_primitives import MappingType, ZeroPointDomain
 
+from .utils import uintx_version
+
+
+USING_MODIFIED_TORCHAO = False
+USING_MODIFIED_TORCHAO = uintx_version() != 1 and USING_MODIFIED_TORCHAO
+
 
 def _get_linear_subclass_inserter(constructor):
     def insert_subclass(lin):
@@ -164,10 +170,21 @@ def int8_dynamic_activation_int4_weight(device, group_size=32):
 
 
 def intx_weight_only(device, bit_size, group_size=64, pack_dim=-1):
-    from torchao.prototype.uintx.Uintx import UintxLayoutType
+    if version := uintx_version() == 1:
+        return lambda: (lambda x: x)
+
+    if version == 2:
+        from torchao.prototype.uintx.Uintx import UintxLayoutType
+    else:
+        from torchao.dtypes.uintx.Uintx import (  # pyright: ignore[reportMissingImports]
+            UintxLayoutType,
+        )
 
     def apply_uintx_weight_only_quant(weight):
-        layout_type = UintxLayoutType(bit_size=bit_size, pack_dim=pack_dim)
+        if version == 2:
+            layout_type = UintxLayoutType(bit_size=bit_size, pack_dim=pack_dim)
+        else:
+            layout_type = UintxLayoutType(bit_width=bit_size, pack_dim=pack_dim)
         mapping_type = MappingType.ASYMMETRIC
         block_size = (1, group_size)
         quant_min = 0
@@ -219,10 +236,11 @@ def float8_weight_only(device):
 
 
 class qdtype:
-    def __init__(self, q, fn, defaults: list = []) -> None:
+    def __init__(self, q, fn, defaults: list = [], filter: callable = None) -> None:
         self._q = q
         self.fn = fn
         self.special_variables = defaults
+        self.filter = filter
 
     def __eq__(self, __value: object) -> bool:
         if isinstance(__value, qdtype):
@@ -230,6 +248,12 @@ class qdtype:
         return False
 
     def __call__(self, *args) -> "qdtype":
+        if self.filter is not None:
+            if (filtout := self.filter(*args)) is not None:
+                print(
+                    f"Invalid arguments for {self._q}: {args} (forcing to nearest: {filtout})"
+                )
+                args = filtout
         self.special_variables = list(args)
         return self
 
@@ -243,9 +267,34 @@ class qdtype:
         return self.fn(device)
 
 
-qfloatx = qdtype("floatx_", quant_llm_fpx_weight_only, [3, 2])
+def floatfilter(*args):
+    if USING_MODIFIED_TORCHAO:
+        return None
+
+    if len(args) != 2:
+        return [2, 2]
+    num_bits = sum(args) + 1
+    bits = {
+        5: [[2, 2], [3, 1]],
+        6: [[2, 3], [3, 2]],
+    }
+    bitlist = bits.get(num_bits, [[2, 2]])
+    if list(args) not in bitlist:
+        return bitlist[0]
+    return None
+
+
+def intfilter(*args):
+    if len(args) != 1:
+        return [5]
+    if args[0] < 1 or args[0] > 8:
+        return [5]
+    return None
+
+
+qfloatx = qdtype("floatx_", quant_llm_fpx_weight_only, [3, 2], floatfilter)
 qfloat8 = qdtype("float8", float8_weight_only)
-qintx = qdtype("intx_", intx_weight_only, [5])
+qintx = qdtype("intx_", intx_weight_only, [5], intfilter)
 qint4 = qdtype("int4", int4_weight_only)
 qint4a8 = qdtype("int4a8", int8_dynamic_activation_int4_weight)
 qint8 = qdtype("int8", int8_weight_only)

@@ -22,7 +22,7 @@ from src.pipeline import FluxPipeline
 
 def load_models(file: Path = None) -> dict:
     config = get_config()
-    device = "cpu" if config.offload else config.device
+    device = "cpu" if config.compute.offload != "none" else config.compute.device
 
     if file is not None and file.exists():
         state_dict = torch.load(file, mmap=True)
@@ -38,10 +38,10 @@ def load_models(file: Path = None) -> dict:
 
             transformer = quantization.quantize_model(
                 _init_transformer,
-                config.transformer_qdtype,
+                config.transformer.qdtype,
                 device=device,
-                skip=config.transformer_skip,
-                strict_skip=config.transformer_strict_skip,
+                skip=config.transformer.skip,
+                strict_skip=config.transformer.strict_skip,
             )
         else:
             transformer = _init_transformer(state_dict["transformer"]).to(device)
@@ -54,55 +54,56 @@ def load_models(file: Path = None) -> dict:
 
             text_encoder_2 = quantization.quantize_model(
                 _init_text_encoder,
-                config.text_encoder_qdtype,
+                config.text_encoder.qdtype,
                 device=device,
-                skip=config.text_encoder_skip,
-                strict_skip=config.text_encoder_strict_skip,
+                skip=config.text_encoder.skip,
+                strict_skip=config.text_encoder.strict_skip,
             )
         else:
             text_encoder_2 = _init_text_encoder(state_dict["text_encoder_2"]).to(device)
     else:
         transformer = quantization.quantize_model(
             _init_transformer,
-            config.transformer_qdtype,
+            config.transformer.qdtype,
             device=device,
-            skip=config.transformer_skip,
-            strict_skip=config.transformer_strict_skip,
+            skip=config.transformer.skip,
+            strict_skip=config.transformer.strict_skip,
         )
 
         text_encoder_2 = quantization.quantize_model(
             _init_text_encoder,
-            config.text_encoder_qdtype,
+            config.text_encoder.qdtype,
             device=device,
-            skip=config.text_encoder_skip,
-            strict_skip=config.text_encoder_strict_skip,
+            skip=config.text_encoder.skip,
+            strict_skip=config.text_encoder.strict_skip,
         )
 
     scheduler = FlowMatchEulerDiscreteScheduler.from_pretrained(
         config.repo,
         revision=config.revision,
         subfolder="scheduler",
-        torch_dtype=config.compute_dtype,
+        torch_dtype=config.compute.dtype,
     )
     text_encoder = CLIPTextModel.from_pretrained(
-        "openai/clip-vit-large-patch14", torch_dtype=config.compute_dtype
+        "openai/clip-vit-large-patch14", torch_dtype=config.compute.dtype
     )
     tokenizer = CLIPTokenizer.from_pretrained(
-        "openai/clip-vit-large-patch14", torch_dtype=config.compute_dtype
+        "openai/clip-vit-large-patch14", torch_dtype=config.compute.dtype
     )
 
     tokenizer_2 = T5TokenizerFast.from_pretrained(
         config.repo,
         revision=config.revision,
         subfolder="tokenizer_2",
-        torch_dtype=config.compute_dtype,
+        torch_dtype=config.compute.dtype,
     )
 
     vae: AutoencoderKL = AutoencoderKL.from_pretrained(
         config.repo,
         revision=config.revision,
         subfolder="vae",
-        torch_dtype=config.compute_dtype,
+        torch_dtype=config.compute.dtype,
+        force_upcast=False,
     )
 
     return {
@@ -114,6 +115,12 @@ def load_models(file: Path = None) -> dict:
         "transformer": transformer,
         "vae": vae,
     }
+
+
+def _apply_transformations(models: dict) -> dict:
+    # config = get_config()
+    models["vae"].enable_tiling()
+    return models
 
 
 def save_models(file: Path, models: dict):
@@ -133,11 +140,14 @@ def save_models(file: Path, models: dict):
 
 def create_pipeline(models: dict) -> FluxPipeline:
     config = get_config()
+    models = _apply_transformations(models)
     pipe = FluxPipeline(**models)
-    if config.offload:
-        pipe.enable_model_cpu_offload()
+    if config.compute.offload == "model":
+        pipe.enable_model_cpu_offload(device=config.compute.device)
+    elif config.compute.offload == "sequential":
+        pipe.enable_sequential_cpu_offload(device=config.compute.device)
     else:
-        pipe.to(config.device)
+        pipe.to(config.compute.device)
     return pipe
 
 
@@ -163,7 +173,7 @@ def _init_transformer(state_dict=None) -> FluxTransformer2DModel:
         config.repo,
         revision=config.revision,
         subfolder="transformer",
-        torch_dtype=config.compute_dtype,
+        torch_dtype=config.compute.dtype,
     )
 
 
@@ -188,7 +198,7 @@ def _init_text_encoder(state_dict=None):
         config.repo,
         revision=config.revision,
         subfolder="text_encoder_2",
-        torch_dtype=config.compute_dtype,
+        torch_dtype=config.compute.dtype,
     )
 
 
@@ -226,8 +236,8 @@ class Metadata:
     def get_from_config() -> "Metadata":
         config = get_config()
         return Metadata(
-            transformer_qdtype=config.transformer_qdtype,
-            transformer_skip=config.transformer_skip,
-            text_encoder_qdtype=config.text_encoder_qdtype,
-            text_encoder_skip=config.text_encoder_skip,
+            transformer_qdtype=config.transformer.qdtype,
+            transformer_skip=config.transformer.skip,
+            text_encoder_qdtype=config.text_encoder.qdtype,
+            text_encoder_skip=config.text_encoder.skip,
         )
