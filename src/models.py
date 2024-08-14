@@ -207,7 +207,7 @@ def _init_text_encoder(state_dict=None):
 @dataclass
 class Metadata:
     transformer_qdtype: quantization.qdtype = field(
-        default=quantization.qfloatx(2, 2),
+        default_factory=lambda: quantization.qfloatx(2, 2),
         metadata=conf(
             encoder=encode_qdt,
             decoder=decode_qdt,
@@ -224,7 +224,7 @@ class Metadata:
     )
 
     text_encoder_qdtype: quantization.qdtype = field(
-        default=quantization.qint4,
+        default_factory=lambda: quantization.qint4,
         metadata=conf(
             encoder=encode_qdt,
             decoder=decode_qdt,

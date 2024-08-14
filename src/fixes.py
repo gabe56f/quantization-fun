@@ -92,7 +92,7 @@ def apply_fixes():
         if UINTX_VERSION == 2:
             from torchao.prototype.uintx import UintxTensor
         else:
-            from torchao.dtypes.uintx import (  # pyright: ignore[reportMissingImports]
+            from torchao.dtypes.uintx.Uintx import (  # pyright: ignore[reportMissingImports]
                 UintxTensor,
             )
 

@@ -65,7 +65,7 @@ class VAEConfig:
 @dataclass
 class ComputeConfig:
     dtype: torch.dtype = field(
-        default=torch.bfloat16,
+        default_factory=lambda: torch.bfloat16,
         metadata=config(
             encoder=encode_dtype,
             decoder=decode_dtype,
@@ -73,7 +73,7 @@ class ComputeConfig:
     )
     offload: Literal["none", "model", "sequential"] = "model"
     device: torch.device = field(
-        default=torch.device("cpu"),
+        default_factory=lambda: torch.device("cpu"),
         metadata=config(
             encoder=encode_device,
             decoder=decode_device,
@@ -85,7 +85,7 @@ class ComputeConfig:
 @dataclass
 class ModelConfig:
     qdtype: quantization.qdtype = field(
-        default=quantization.qfloatx(2, 2),
+        default_factory=lambda: quantization.qfloatx(2, 2),
         metadata=config(
             encoder=encode_qdt,
             decoder=decode_qdt,
@@ -105,7 +105,7 @@ class ModelConfig:
 @dataclass_json
 @dataclass
 class Config:
-    compute: ComputeConfig = ComputeConfig()
+    compute: ComputeConfig = field(default_factory=ComputeConfig)
     repo: str = "black-forest-labs/FLUX.1-dev"
     revision: Optional[str] = None
 
