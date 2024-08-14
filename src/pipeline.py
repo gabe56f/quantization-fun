@@ -13,8 +13,19 @@
 # limitations under the License.
 
 import inspect
-from typing import Any, Callable, Dict, List, Optional, Union, Tuple
+from typing import (
+    AsyncGenerator,
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Union,
+    Tuple,
+    TYPE_CHECKING,
+)
 import math
+import gc
 
 import numpy as np
 import torch
@@ -33,9 +44,13 @@ from diffusers.utils import (
 )
 from diffusers.utils.torch_utils import randn_tensor
 from diffusers.pipelines.pipeline_utils import DiffusionPipeline
-from diffusers.pipelines.flux.pipeline_output import FluxPipelineOutput
 
 from .config import get_config
+from .vae import cheap_approximation
+
+if TYPE_CHECKING:
+    from .schema import GenerationOutput
+
 
 XLA_AVAILABLE = False
 
@@ -511,8 +526,9 @@ class FluxPipeline(DiffusionPipeline, FluxLoraLoaderMixin):
         return self._interrupt
 
     @torch.no_grad()
-    def __call__(
+    async def __call__(
         self,
+        id: str,
         prompt: str = None,
         neg_prompt: str = None,
         height: Optional[int] = None,
@@ -526,12 +542,13 @@ class FluxPipeline(DiffusionPipeline, FluxLoraLoaderMixin):
         generator: Optional[Union[torch.Generator, List[torch.Generator]]] = None,
         latents: Optional[torch.FloatTensor] = None,
         output_type: Optional[str] = "pil",
-        return_dict: bool = True,
         joint_attention_kwargs: Optional[Dict[str, Any]] = None,
         callback_on_step_end: Optional[Callable[[int, int, Dict], None]] = None,
         callback_on_step_end_tensor_inputs: List[str] = ["latents"],
         max_sequence_length: int = 512,
-    ):
+    ) -> AsyncGenerator["GenerationOutput", None]:
+        from .schema import GenerationOutput, _IMAGES
+
         height = height or self.default_sample_size * self.vae_scale_factor
         width = width or self.default_sample_size * self.vae_scale_factor
 
@@ -709,6 +726,15 @@ class FluxPipeline(DiffusionPipeline, FluxLoraLoaderMixin):
                     (i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0
                 ):
                     progress_bar.update()
+                    approx = cheap_approximation(
+                        latents, height, width, self.vae_scale_factor
+                    )
+                    yield GenerationOutput.create_from_pil(
+                        id,
+                        approx,
+                        i,
+                        num_inference_steps,
+                    )
 
         if output_type == "latent":
             image = latents
@@ -723,14 +749,21 @@ class FluxPipeline(DiffusionPipeline, FluxLoraLoaderMixin):
             torch.nan_to_num_(latents, nan=0.0, posinf=0.0, neginf=0.0)
 
             config = get_config()
+            # print(latents.shape)
             # with torch.autocast(device.type, dtype=config.compute.dtype):
             image = self.vae.decode(latents, return_dict=False)[0]
             image = self.image_processor.postprocess(image, output_type=output_type)
+            image[0].save(_IMAGES / id)
 
         # Offload all models
         self.maybe_free_model_hooks()
+        gc.collect()
+        if device.type == "cuda":
+            torch.cuda.empty_cache()
 
-        if not return_dict:
-            return (image,)
-
-        return FluxPipelineOutput(images=image)
+        yield GenerationOutput(
+            id=id,
+            images=[f"http://localhost:8000/images/{id}"],
+            step=num_inference_steps,
+            total_steps=num_inference_steps,
+        )

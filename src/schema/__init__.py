@@ -1,16 +1,19 @@
 import gc
 import os
 from pathlib import Path
+from typing import AsyncGenerator, TYPE_CHECKING
 
-from strawberry import type, field, mutation
+from strawberry import type, field, mutation, subscription
 import torch
 
-from .generation import GenerationInput
+from .generation import GenerationInput, GenerationOutput
 from .generic import GenericResponse
-from ..models import load_models, create_pipeline, FluxPipeline
+
+if TYPE_CHECKING:
+    from ..models import FluxPipeline
 
 _MODEL = None
-_PIPELINE: FluxPipeline = None
+_PIPELINE: "FluxPipeline" = None
 _MODEL_FILE = Path("models.pt")
 _IMAGES = Path("images/")
 
@@ -20,10 +23,21 @@ _IMAGES.mkdir(exist_ok=True, parents=True)
 @type
 class Mutations:
     @mutation
-    def generate_image(self, input: GenerationInput) -> GenericResponse:
+    async def generate_image(
+        self, input: GenerationInput
+    ) -> AsyncGenerator[GenericResponse, None]:
         if _PIPELINE is not None:
+            files = len(
+                [
+                    filename
+                    for filename in os.listdir(_IMAGES)
+                    if filename.endswith(".png")
+                ]
+            )
+            filename = "{:05d}.png".format(files)
             with torch.inference_mode():
-                image = _PIPELINE(
+                async for x in _PIPELINE(
+                    filename,
                     prompt=input.prompt,
                     neg_prompt=input.negative_prompt,
                     cfg=input.cfg,
@@ -32,22 +46,12 @@ class Mutations:
                     width=input.width,
                     height=input.height,
                     generator=torch.Generator().manual_seed(input.seed),
-                ).images[0]
-                gc.collect()
-                torch.cuda.empty_cache()
-                filename = len(
-                    [
-                        filename
-                        for filename in os.listdir(_IMAGES)
-                        if filename.endswith(".png")
-                    ]
-                )
-                image.save(_IMAGES / "{:05d}.png".format(filename))
-                return GenericResponse(
-                    message="localhost:8000/images/{:05d}.png".format(filename)
-                )
+                ):
+                    x: GenerationOutput
+                    pass
+                yield GenericResponse(message=x.images[0])
         else:
-            return GenericResponse(message="model not loaded.")
+            yield GenericResponse(message="model not loaded.")
 
 
 @type
@@ -64,9 +68,49 @@ class Queries:
     def load_model(self) -> GenericResponse:
         global _MODEL, _PIPELINE
         if _PIPELINE is None:
+            from ..models import load_models, create_pipeline
+
             _MODEL = load_models(_MODEL_FILE)
             _PIPELINE = create_pipeline(_MODEL)
             gc.collect()
             torch.cuda.empty_cache()
             return GenericResponse(message="true")
         return GenericResponse(message="false")
+
+
+@type
+class Subscriptions:
+    @subscription
+    async def generate_image_and_watch(
+        self, input: GenerationInput
+    ) -> AsyncGenerator[GenerationOutput, None]:
+        if _PIPELINE is not None:
+            files = len(
+                [
+                    filename
+                    for filename in os.listdir(_IMAGES)
+                    if filename.endswith(".png")
+                ]
+            )
+            filename = "{:05d}.png".format(files)
+
+            with torch.inference_mode():
+                async for x in _PIPELINE(
+                    filename,
+                    prompt=input.prompt,
+                    neg_prompt=input.negative_prompt,
+                    cfg=input.cfg,
+                    guidance_scale=input.flux_cfg,
+                    num_inference_steps=input.num_inference_steps,
+                    width=input.width,
+                    height=input.height,
+                    generator=torch.Generator().manual_seed(input.seed),
+                ):
+                    x: GenerationOutput
+                    yield x
+                    pass
+        else:
+            yield GenerationOutput(images=[])
+
+
+__all__ = ["Mutations", "Queries", "Subscriptions", "GenerationOutput", "_IMAGES"]

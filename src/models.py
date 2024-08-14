@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 import json
 from pathlib import Path
 
-from dataclasses_json import config as conf, dataclass_json
+from dataclasses_json import dataclass_json
 from diffusers import FlowMatchEulerDiscreteScheduler, AutoencoderKL
 from diffusers.models.transformers.transformer_flux import FluxTransformer2DModel
 from huggingface_hub import hf_hub_download
@@ -15,8 +15,8 @@ from transformers import (
     T5TokenizerFast,
 )
 
-from src import quantization, fixes
-from src.config import decode_qdt, encode_qdt, get_config
+from src import quantization, fixes, utils
+from src.config import get_config
 from src.pipeline import FluxPipeline
 
 
@@ -208,10 +208,7 @@ def _init_text_encoder(state_dict=None):
 class Metadata:
     transformer_qdtype: quantization.qdtype = field(
         default_factory=lambda: quantization.qfloatx(2, 2),
-        metadata=conf(
-            encoder=encode_qdt,
-            decoder=decode_qdt,
-        ),
+        metadata=utils.qdt_config(),
     )
 
     transformer_skip: list = field(
@@ -225,10 +222,7 @@ class Metadata:
 
     text_encoder_qdtype: quantization.qdtype = field(
         default_factory=lambda: quantization.qint4,
-        metadata=conf(
-            encoder=encode_qdt,
-            decoder=decode_qdt,
-        ),
+        metadata=utils.qdt_config(),
     )
 
     text_encoder_skip: list = field(default_factory=list)

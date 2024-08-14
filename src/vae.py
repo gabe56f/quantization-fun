@@ -11,19 +11,45 @@ from diffusers.models.unets.unet_2d_blocks import UpDecoderBlock2D, DownEncoderB
 import torch
 from torch.functional import F
 from tqdm import tqdm
+from PIL import Image
 
 from src.config import Config, get_config
 
 
-def cheap_approximation(x: torch.Tensor) -> torch.Tensor:
+def cheap_approximation(
+    x: torch.Tensor, height: int, width: int, vae_scale_factor: float
+) -> torch.Tensor:
+    from src.pipeline import FluxPipeline
+
     coeffs = [
-        [0.298, 0.207, 0.208],
-        [0.187, 0.286, 0.173],
-        [-0.158, 0.189, 0.264],
-        [-0.184, -0.271, -0.473],
+        [-0.0404, 0.0159, 0.0609],
+        [0.0043, 0.0298, 0.0850],
+        [0.0328, -0.0749, -0.0503],
+        [-0.0245, 0.0085, 0.0549],
+        [0.0966, 0.0894, 0.0530],
+        [0.0035, 0.0399, 0.0123],
+        [0.0583, 0.1184, 0.1262],
+        [-0.0191, -0.0206, -0.0306],
+        [-0.0324, 0.0055, 0.1001],
+        [0.0955, 0.0659, -0.0545],
+        [-0.0504, 0.0231, -0.0013],
+        [0.0500, -0.0008, -0.0088],
+        [0.0982, 0.0941, 0.0976],
+        [-0.1233, -0.0280, -0.0897],
+        [-0.0005, -0.0530, -0.0020],
+        [-0.1273, -0.0932, -0.0680],
     ]
-    coeffs = torch.tensor(coeffs, dtype=torch.float32, device=x.device)
-    return torch.einsum("lxy,lr -> rxy", x.to(torch.float32), coeffs)
+    latent_rgb_factors = torch.tensor(coeffs, dtype=x.dtype, device=x.device)
+    x = FluxPipeline._unpack_latents(x, height, width, vae_scale_factor)
+    latent_image = x[0].permute(1, 2, 0) @ latent_rgb_factors
+
+    latents_ubyte = (
+        ((latent_image + 1.0) / 2.0)
+        .clamp(0, 1)  # change scale from -1..1 to 0..1
+        .mul(0xFF)  # to 0..255
+    ).to(device="cpu", dtype=torch.uint8, non_blocking=True)
+
+    return Image.fromarray(latents_ubyte.numpy())
 
 
 def _attn(self: Attention, hidden_states: torch.Tensor) -> torch.Tensor:

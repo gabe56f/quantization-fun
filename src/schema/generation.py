@@ -1,6 +1,12 @@
-from typing import Optional
+from typing import List, TYPE_CHECKING
 
 from strawberry import type, field, input
+from ..utils import convert_image_to_base64
+import torch
+from PIL import Image
+
+if TYPE_CHECKING:
+    from diffusers.image_processor import VaeImageProcessor
 
 
 @input
@@ -21,6 +27,37 @@ class GenerationInput:
     )
     width: int = field(description="Width of the image.", default=1024)
     height: int = field(description="Height of the image.", default=1024)
-    seed: Optional[int] = field(
-        description="Seed for the random number generator.", default=-1
+    seed: int = field(description="Seed for the random number generator.", default=-1)
+
+
+@type
+class GenerationOutput:
+    id: str = field(description="ID of the generation.")
+    images: List[str] = field(
+        description="List of image blobs in the case of an ongoing generation, otherwise URLs."
     )
+    step: int = field(description="Current step of the generation.")
+    total_steps: int = field(description="Total amount of steps for the generation.")
+
+    @classmethod
+    def create_from_pil(
+        cls, id: str, image: Image.Image, step: int, total_steps: int
+    ) -> "GenerationOutput":
+        return cls(
+            id=id,
+            images=[convert_image_to_base64(image)],
+            step=step,
+            total_steps=total_steps,
+        )
+
+    @classmethod
+    def create_from_tensors(
+        cls,
+        id: str,
+        tensor: torch.Tensor,
+        step: int,
+        total_steps: int,
+        image_processor: "VaeImageProcessor",
+    ) -> "GenerationOutput":
+        image = image_processor.postprocess(tensor, output_type="pil")
+        return cls.create_from_pil(id, image, step, total_steps)

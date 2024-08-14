@@ -30,6 +30,7 @@ def disable_cfg(step: int, max_steps: int, timestep: torch.Tensor) -> bool:
 generator = torch.Generator().manual_seed(123456)
 with torch.inference_mode():
     image = pipe(
+        "noid",
         prompt=prompt,
         neg_prompt=neg_prompt,
         width=1024,

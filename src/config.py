@@ -2,94 +2,62 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Literal, Optional
 
-from dataclasses_json import dataclass_json, config
+from dataclasses_json import dataclass_json
 import torch
 
 from src import quantization
+from .utils import qdt_config, dtype_config, device_config, tile_config
+
+_CONFIG = None
 
 
-def encode_qdt(qdt: quantization.qdtype) -> str:
-    return qdt.q
+def save_on_change(x=None):
+    def wrap(cls):
+        def setattr(self, name, value):
+            object.__setattr__(self, name, value)
+            save_config()
+
+        cls.__setattr__ = setattr
+        return cls
+
+    if x is None:
+        return wrap
+    return wrap(x)
 
 
-def decode_qdt(qdt: str) -> quantization.qdtype:
-    if "_" in qdt:
-        qdt = qdt.replace("_", "")
-        if qdt.startswith("float"):
-            qdt = qdt.replace("float", "")
-            base = quantization.qfloatx
-        else:
-            qdt = qdt.replace("int", "")
-            base = quantization.qintx
-        return base(*list(map(int, qdt.split("x"))))
-    return getattr(quantization, f"q{qdt}")
-
-
-def encode_dtype(dtype: torch.dtype) -> str:
-    return dtype.__repr__().replace("torch.", "")
-
-
-def decode_dtype(dtype: str) -> torch.dtype:
-    return getattr(torch, dtype)
-
-
-def encode_device(device: torch.device) -> str:
-    return f"{device.type}:{device.index or 0}"
-
-
-def decode_device(device: str) -> torch.device:
-    return torch.device(device)
-
-
-def encode_tile(tile: int) -> str:
-    return str(tile * 8)
-
-
-def decode_tile(tile: str) -> int:
-    return int(tile) // 8
-
-
+@save_on_change
 @dataclass_json
 @dataclass
 class VAEConfig:
     use_tiling: bool = True
-    tile_size: int = field(
-        default=64, metadata=config(encoder=encode_tile, decoder=decode_tile)
-    )
+    tile_size: int = field(default=64, metadata=tile_config())
     use_tiling_fastpath: bool = True
     tiling_encoder_color_fix: bool = True
     upcast: bool = False
 
 
+@save_on_change
 @dataclass_json
 @dataclass
 class ComputeConfig:
     dtype: torch.dtype = field(
         default_factory=lambda: torch.bfloat16,
-        metadata=config(
-            encoder=encode_dtype,
-            decoder=decode_dtype,
-        ),
+        metadata=dtype_config(),
     )
     offload: Literal["none", "model", "sequential"] = "model"
     device: torch.device = field(
         default_factory=lambda: torch.device("cpu"),
-        metadata=config(
-            encoder=encode_device,
-            decoder=decode_device,
-        ),
+        metadata=device_config(),
     )
 
 
+@save_on_change
 @dataclass_json
 @dataclass
 class ModelConfig:
     qdtype: quantization.qdtype = field(
         default_factory=lambda: quantization.qfloatx(2, 2),
-        metadata=config(
-            encoder=encode_qdt,
-            decoder=decode_qdt,
-        ),
+        metadata=qdt_config(),
     )
     skip: List[str] = field(
         default_factory=lambda: [
@@ -102,6 +70,7 @@ class ModelConfig:
     strict_skip: bool = False
 
 
+@save_on_change
 @dataclass_json
 @dataclass
 class Config:
@@ -117,15 +86,23 @@ class Config:
 
 
 def get_config() -> Config:
-    p = Path("config.json")
-    if p.exists():
-        return Config.from_json(p.read_text("utf-8"))
+    global _CONFIG
+    if _CONFIG is None:
+        p = Path("config.json")
+        if p.exists():
+            _CONFIG = Config.from_json(p.read_text("utf-8"))
+        else:
+            _CONFIG = Config()
+            save_config()
+    return _CONFIG
 
-    config = Config()
-    return save_config(config)
 
+def save_config(config: Config = None) -> Config:  # noqa
+    if _CONFIG is not None and config is None:
+        config = _CONFIG
 
-def save_config(config: Config) -> Config:
+    if config is None:
+        return None
     p = Path("config.json")
     p.write_text(config.to_json(indent=4, sort_keys=True), "utf-8")
     return config

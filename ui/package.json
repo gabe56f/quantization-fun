@@ -1,0 +1,32 @@
+{
+  "name": "ui",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "svelte-check --tsconfig ./tsconfig.json && tsc -p tsconfig.node.json"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^3.1.1",
+    "@tsconfig/svelte": "^5.0.4",
+    "autoprefixer": "^10.4.20",
+    "svelte": "^4.2.18",
+    "svelte-check": "^3.8.5",
+    "tailwindcss": "^3.4.9",
+    "tslib": "^2.6.3",
+    "typescript": "^5.5.3",
+    "vite": "^5.4.0"
+  },
+  "dependencies": {
+    "@apollo/client": "^3.11.4",
+    "@svelte-apollo/workspace": "github:sebastiendub/svelte-apollo",
+    "clsx": "^2.1.1",
+    "graphql": "^16.9.0",
+    "graphql-ws": "^5.16.0",
+    "tailwind-merge": "^2.5.2",
+    "tailwind-variants": "^0.2.1"
+  }
+}
