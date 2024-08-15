@@ -27,23 +27,18 @@ class Mutations:
         self, input: GenerationInput
     ) -> AsyncGenerator[GenericResponse, None]:
         if _PIPELINE is not None:
-            files = len(
-                [
-                    filename
-                    for filename in os.listdir(_IMAGES)
-                    if filename.endswith(".png")
-                ]
-            )
-            filename = "{:05d}.png".format(files)
+            files = len(os.listdir(_IMAGES))
+            id = "{:05d}".format(files)
             with torch.inference_mode():
                 async for x in _PIPELINE(
-                    filename,
+                    id,
                     prompt=input.prompt,
                     neg_prompt=input.negative_prompt,
                     cfg=input.cfg,
                     guidance_scale=input.flux_cfg,
                     num_inference_steps=input.num_inference_steps,
                     width=input.width,
+                    num_images_per_prompt=input.batch_size,
                     height=input.height,
                     generator=torch.Generator().manual_seed(input.seed),
                 ):
@@ -85,18 +80,12 @@ class Subscriptions:
         self, input: GenerationInput
     ) -> AsyncGenerator[GenerationOutput, None]:
         if _PIPELINE is not None:
-            files = len(
-                [
-                    filename
-                    for filename in os.listdir(_IMAGES)
-                    if filename.endswith(".png")
-                ]
-            )
-            filename = "{:05d}.png".format(files)
+            files = len(os.listdir(_IMAGES))
+            id = "{:05d}".format(files)
 
             with torch.inference_mode():
                 async for x in _PIPELINE(
-                    filename,
+                    id,
                     prompt=input.prompt,
                     neg_prompt=input.negative_prompt,
                     cfg=input.cfg,
@@ -104,13 +93,17 @@ class Subscriptions:
                     num_inference_steps=input.num_inference_steps,
                     width=input.width,
                     height=input.height,
+                    num_images_per_prompt=input.batch_size,
                     generator=torch.Generator().manual_seed(input.seed),
                 ):
                     x: GenerationOutput
                     yield x
                     pass
         else:
-            yield GenerationOutput(images=[])
+            print("load model!!!")
+            yield GenerationOutput(
+                images=[], id="", step=0, total_steps=input.num_inference_steps
+            )
 
 
 __all__ = ["Mutations", "Queries", "Subscriptions", "GenerationOutput", "_IMAGES"]

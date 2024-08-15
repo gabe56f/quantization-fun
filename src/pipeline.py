@@ -30,6 +30,7 @@ import gc
 import numpy as np
 import torch
 from transformers import CLIPTextModel, CLIPTokenizer, T5EncoderModel, T5TokenizerFast
+from PIL import Image
 
 from diffusers.image_processor import VaeImageProcessor
 from diffusers.loaders import FluxLoraLoaderMixin
@@ -632,6 +633,7 @@ class FluxPipeline(DiffusionPipeline, FluxLoraLoaderMixin):
         )
         self._num_timesteps = len(timesteps)
 
+        config = get_config()
         # 6. Denoising loop
         with self.progress_bar(total=num_inference_steps) as progress_bar:
             for i, t in enumerate(timesteps):
@@ -726,9 +728,10 @@ class FluxPipeline(DiffusionPipeline, FluxLoraLoaderMixin):
                     (i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0
                 ):
                     progress_bar.update()
-                    approx = cheap_approximation(
-                        latents, height, width, self.vae_scale_factor
+                    approx = await cheap_approximation(
+                        latents, height, width, self.vae_scale_factor, config
                     )
+                    # TODO: replace await with something reactive
                     yield GenerationOutput.create_from_pil(
                         id,
                         approx,
@@ -748,12 +751,19 @@ class FluxPipeline(DiffusionPipeline, FluxLoraLoaderMixin):
             ) + self.vae.config.shift_factor
             torch.nan_to_num_(latents, nan=0.0, posinf=0.0, neginf=0.0)
 
-            config = get_config()
-            # print(latents.shape)
-            # with torch.autocast(device.type, dtype=config.compute.dtype):
-            image = self.vae.decode(latents, return_dict=False)[0]
-            image = self.image_processor.postprocess(image, output_type=output_type)
-            image[0].save(_IMAGES / id)
+            with torch.autocast(
+                device.type,
+                dtype=config.compute.dtype,
+                enabled=not config.vae.use_tiling,
+            ):
+                images = self.vae.decode(latents, return_dict=False)[0]
+            images = self.image_processor.postprocess(images, output_type=output_type)
+            _images = []
+            for i, image in enumerate(images):
+                image: Image.Image
+                filename = f"{id}_{i}.{config.io.save_type}"
+                image.save(_IMAGES / filename)
+                _images.append(f"http://localhost:8000/images/{filename}")
 
         # Offload all models
         self.maybe_free_model_hooks()
@@ -763,7 +773,7 @@ class FluxPipeline(DiffusionPipeline, FluxLoraLoaderMixin):
 
         yield GenerationOutput(
             id=id,
-            images=[f"http://localhost:8000/images/{id}"],
+            images=_images,
             step=num_inference_steps,
             total_steps=num_inference_steps,
         )

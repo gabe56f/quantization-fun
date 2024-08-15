@@ -16,10 +16,17 @@ from PIL import Image
 from src.config import Config, get_config
 
 
-def cheap_approximation(
-    x: torch.Tensor, height: int, width: int, vae_scale_factor: float
-) -> torch.Tensor:
+async def cheap_approximation(
+    x: torch.Tensor,
+    height: int,
+    width: int,
+    vae_scale_factor: float,
+    config: Config = None,
+) -> List[Image.Image]:
     from src.pipeline import FluxPipeline
+
+    if config == None:  # noqa
+        config = get_config()
 
     coeffs = [
         [-0.0404, 0.0159, 0.0609],
@@ -41,15 +48,21 @@ def cheap_approximation(
     ]
     latent_rgb_factors = torch.tensor(coeffs, dtype=x.dtype, device=x.device)
     x = FluxPipeline._unpack_latents(x, height, width, vae_scale_factor)
-    latent_image = x[0].permute(1, 2, 0) @ latent_rgb_factors
+    images = []
+    for z in x:
+        latent_image = z.permute(1, 2, 0) @ latent_rgb_factors
 
-    latents_ubyte = (
-        ((latent_image + 1.0) / 2.0)
-        .clamp(0, 1)  # change scale from -1..1 to 0..1
-        .mul(0xFF)  # to 0..255
-    ).to(device="cpu", dtype=torch.uint8, non_blocking=True)
+        latents_ubyte = (
+            ((latent_image + 1.0) / 2.0)
+            .clamp(0, 1)  # change scale from -1..1 to 0..1
+            .mul(0xFF)  # to 0..255
+        ).to(device="cpu", dtype=torch.uint8, non_blocking=True)
 
-    return Image.fromarray(latents_ubyte.numpy())
+        image = Image.fromarray(latents_ubyte.numpy())
+        if config.io.preview_size == "upscaled":
+            image = image.resize((width, height), Image.Resampling.LANCZOS)
+        images.append(image)
+    return images
 
 
 def _attn(self: Attention, hidden_states: torch.Tensor) -> torch.Tensor:

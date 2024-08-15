@@ -28,6 +28,9 @@ class GenerationInput:
     width: int = field(description="Width of the image.", default=1024)
     height: int = field(description="Height of the image.", default=1024)
     seed: int = field(description="Seed for the random number generator.", default=-1)
+    batch_size: int = field(
+        description="Number of images to generate per prompt.", default=1
+    )
 
 
 @type
@@ -43,9 +46,12 @@ class GenerationOutput:
     def create_from_pil(
         cls, id: str, image: Image.Image, step: int, total_steps: int
     ) -> "GenerationOutput":
+        if not isinstance(image, list):
+            image = [image]
+        images = [convert_image_to_base64(i) for i in image]
         return cls(
             id=id,
-            images=[convert_image_to_base64(image)],
+            images=images,
             step=step,
             total_steps=total_steps,
         )

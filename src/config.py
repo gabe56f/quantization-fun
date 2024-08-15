@@ -28,6 +28,18 @@ def save_on_change(x=None):
 @save_on_change
 @dataclass_json
 @dataclass
+class IOConfig:
+    save_type: Literal["png", "webp", "jpg"] = "png"
+    save_quality: int = 100
+
+    preview_type: Literal["png", "webp", "jpg"] = "webp"
+    preview_size: Literal["native", "upscaled"] = "upscaled"
+    preview_quality: int = 95
+
+
+@save_on_change
+@dataclass_json
+@dataclass
 class VAEConfig:
     use_tiling: bool = True
     tile_size: int = field(default=64, metadata=tile_config())
@@ -83,6 +95,7 @@ class Config:
         default_factory=lambda: ModelConfig(skip=[], qdtype=quantization.qint4)
     )
     vae: VAEConfig = field(default_factory=VAEConfig)
+    io: IOConfig = field(default_factory=IOConfig)
 
 
 def get_config() -> Config:
