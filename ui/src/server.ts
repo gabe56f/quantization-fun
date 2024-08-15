@@ -79,6 +79,7 @@ export const GENERATION_SUBSCRIPTION = gql`
     $seed: Int
     $cfg: Float
     $fluxCfg: Float
+    $batchSize: Int
   ) {
     generateImageAndWatch(
       input: {
@@ -90,6 +91,7 @@ export const GENERATION_SUBSCRIPTION = gql`
         seed: $seed
         cfg: $cfg
         fluxCfg: $fluxCfg
+        batchSize: $batchSize
       }
     ) {
       images
@@ -108,6 +110,7 @@ export function generateAndSubscribe(
   cfg: Number,
   fluxCfg: Number,
   steps: Number,
+  batch: Number,
   callback: Function
 ) {
   const subscription = client
@@ -122,6 +125,7 @@ export function generateAndSubscribe(
         cfg: cfg,
         fluxCfg: fluxCfg,
         steps: steps,
+        batchSize: batch,
       },
     })
     .subscribe({

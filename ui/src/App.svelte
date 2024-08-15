@@ -11,6 +11,7 @@
   let width = 1024;
   let height = 1024;
   let steps = 28;
+  let batchSize = 1;
 
   let image = "";
 
@@ -24,6 +25,7 @@
       cfg,
       fluxCfg,
       steps,
+      batchSize,
       (data: Generation) => {
         console.log(data);
         image = data.images[0];
@@ -61,6 +63,12 @@
   <input type="number" bind:value={width} placeholder="width" class="input" />
   <input type="number" bind:value={height} placeholder="height" class="input" />
   <input type="number" bind:value={steps} placeholder="steps" class="input" />
+  <input
+    type="number"
+    bind:value={batchSize}
+    placeholder="batchSize"
+    class="input"
+  />
 
   <div />
   <button on:click={gen}>generate</button>
